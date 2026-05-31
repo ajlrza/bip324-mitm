@@ -1197,10 +1197,11 @@ impl MitmBIP324 {
         Self::new_from_magic(REGTEST_MAGIC, rng)
     }
 
-    pub fn new_from_magic<Rng: RngCore + CryptoRng>(
+pub fn new_from_magic<Rng: RngCore + CryptoRng>(
         magic: MagicType,
         rng: &mut Rng,
-    ) -> Result<Self, String> {
+        // Returns self rather than Result<>
+    ) -> Self {
         let mut client_secret_key = [0u8; 32];
         RngCore::fill_bytes(rng, &mut client_secret_key);
         debug_assert_ne!([0u8; NUM_SECRET_BYTES], client_secret_key);
@@ -1208,7 +1209,32 @@ impl MitmBIP324 {
         RngCore::fill_bytes(rng, &mut server_secret_key);
         debug_assert_ne!([0u8; NUM_SECRET_BYTES], server_secret_key);
 
-        Self::new_from_magic_and_secrets(magic, client_secret_key, server_secret_key)
+        // Now contains retry loop for invalid generated keys
+        // Also matches to return the correct output than error
+
+        match Self::new_from_magic_and_secrets(magic, client_secret_key, server_secret_key) {
+            Ok(instance) => {
+              return instance;
+            }
+            Err(_e) => {
+                // Retry until the key generated is valid
+                loop {
+                    // Generate new keys 
+                    RngCore::fill_bytes(rng, &mut client_secret_key);
+                    debug_assert_ne!([0u8; NUM_SECRET_BYTES], client_secret_key);
+
+                    RngCore::fill_bytes(rng, &mut server_secret_key);
+                    debug_assert_ne!([0u8; NUM_SECRET_BYTES], server_secret_key);
+
+                    // Loops until "Ok" is matched
+                    match Self::new_from_magic_and_secrets(magic, client_secret_key, server_secret_key) {
+                        Ok(instance) => return instance, 
+                        // If "Err" is matched, generate new keys
+                        Err(_e) => continue;
+                    }
+                }
+            }
+        }
     }
 
     pub fn set_server_secret(
